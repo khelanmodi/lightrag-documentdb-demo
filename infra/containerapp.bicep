@@ -109,7 +109,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'EMBED_MODEL', value: embedModel }
             { name: 'EMBED_DIM', value: '1536' }
             { name: 'LLM_TIMEOUT', value: '120' }
-            { name: 'LIGHTRAG_WORKING_DIR', value: '/tmp/lightrag_storage' }
+            { name: 'LIGHTRAG_WORKING_DIR', value: '/app/lightrag_storage' }
           ]
         }
       ]
