@@ -1,17 +1,47 @@
 import { useState } from 'react';
 import { colorForType } from './colors.js';
 
-function Card({ title, badge, badgeColor, loading, children }) {
+function fmt(ms) {
+  if (ms == null) return '';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
+}
+
+function TimePill({ ms, loading, color }) {
+  if (ms == null && !loading) return null;
+  return (
+    <span
+      className="text-[10px] px-2 py-0.5 rounded-full font-mono tabular-nums"
+      style={{
+        background: color + '22',
+        color,
+        border: `1px solid ${color}55`,
+        minWidth: '60px',
+        textAlign: 'center',
+        display: 'inline-block',
+      }}
+      title={loading ? 'elapsed (still running)' : 'pipeline duration'}
+    >
+      {loading && <span className="inline-block w-1.5 h-1.5 rounded-full mr-1 animate-pulse" style={{ background: color, verticalAlign: 'middle' }} />}
+      {fmt(ms)}
+    </span>
+  );
+}
+
+function Card({ title, badge, badgeColor, loading, timeMs, timeLoading, children }) {
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 flex flex-col min-h-[280px]">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 gap-2">
         <h3 className="text-sm font-semibold text-slate-200">{title}</h3>
-        <span
-          className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-          style={{ background: badgeColor + '33', color: badgeColor, border: `1px solid ${badgeColor}66` }}
-        >
-          {badge}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <TimePill ms={timeMs} loading={timeLoading} color={badgeColor} />
+          <span
+            className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+            style={{ background: badgeColor + '33', color: badgeColor, border: `1px solid ${badgeColor}66` }}
+          >
+            {badge}
+          </span>
+        </div>
       </div>
       {loading ? (
         <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">
@@ -22,7 +52,7 @@ function Card({ title, badge, badgeColor, loading, children }) {
   );
 }
 
-export default function AnswerCards({ result, loading }) {
+export default function AnswerCards({ result, vectorLoading, lightragLoading, timings }) {
   const [openSources, setOpenSources] = useState(false);
 
   const vec = result?.vector_answer;
@@ -31,10 +61,20 @@ export default function AnswerCards({ result, loading }) {
   const nodes = result?.graph_nodes || [];
   const edges = result?.graph_edges || [];
 
+  const vTime = vectorLoading ? timings?.vectorElapsed : (timings?.vectorFinal ?? null);
+  const lTime = lightragLoading ? timings?.lightragElapsed : (timings?.lightragFinal ?? null);
+
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Card title="Vector Search" badge="Standard RAG · top-k similarity" badgeColor="#60a5fa" loading={loading}>
+        <Card
+          title="Vector Search"
+          badge="Standard RAG · top-k similarity"
+          badgeColor="#60a5fa"
+          loading={vectorLoading && !vec}
+          timeMs={vTime}
+          timeLoading={vectorLoading}
+        >
           {vec ? (
             <>
               <div className="text-sm text-slate-200 whitespace-pre-wrap flex-1">{vec}</div>
@@ -66,7 +106,14 @@ export default function AnswerCards({ result, loading }) {
           )}
         </Card>
 
-        <Card title="LightRAG" badge="Graph-augmented retrieval" badgeColor="#34d399" loading={loading}>
+        <Card
+          title="LightRAG"
+          badge="Graph-augmented retrieval"
+          badgeColor="#34d399"
+          loading={lightragLoading && !lr}
+          timeMs={lTime}
+          timeLoading={lightragLoading}
+        >
           {lr ? (
             <>
               <div className="text-sm text-slate-200 whitespace-pre-wrap flex-1">{lr}</div>
@@ -98,7 +145,7 @@ export default function AnswerCards({ result, loading }) {
         </Card>
       </div>
 
-      {result && !loading && (
+      {result && !vectorLoading && !lightragLoading && (
         <div className="text-center text-xs text-slate-400 px-3 py-2 bg-slate-900/60 border border-slate-800 rounded">
           Vector search retrieved <span className="text-blue-300 font-semibold">{sources.length}</span> chunks.
           {' '}LightRAG traversed{' '}

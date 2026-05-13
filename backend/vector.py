@@ -158,3 +158,25 @@ async def vector_answer(query: str) -> tuple[str, list[dict[str, Any]]]:
         temperature=0.1,
     )
     return resp.choices[0].message.content.strip(), sources
+
+
+async def vector_answer_stream(query: str):
+    """Async generator yielding ('sources', list) once, then ('token', str) repeatedly."""
+    sources = await vector_search(query, k=5)
+    yield ("sources", sources)
+
+    context = "\n\n".join(f"[Source {i+1}] {s['text']}" for i, s in enumerate(sources))
+    prompt = (
+        "Answer the question using ONLY the sources below. Be concise.\n\n"
+        f"Sources:\n{context}\n\nQuestion: {query}\n\nAnswer:"
+    )
+    stream = await openai_client.chat.completions.create(
+        model=LLM_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.1,
+        stream=True,
+    )
+    async for chunk in stream:
+        delta = chunk.choices[0].delta.content if chunk.choices else None
+        if delta:
+            yield ("token", delta)

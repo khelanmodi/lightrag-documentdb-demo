@@ -5,7 +5,7 @@ import AnswerCards from './components/AnswerCards.jsx';
 import { useQuery, fetchGraph, ingestDocument } from './hooks/useQuery.js';
 
 export default function App() {
-  const { loading, result, error, run } = useQuery();
+  const { loading, vectorLoading, lightragLoading, result, error, run, timings } = useQuery();
   const [graph, setGraph] = useState({ nodes: [], edges: [] });
   const [graphLoading, setGraphLoading] = useState(true);
   const [ingestText, setIngestText] = useState('');
@@ -45,8 +45,9 @@ export default function App() {
           <h1 className="text-lg font-semibold">LightRAG vs Vector Search</h1>
           <p className="text-xs text-slate-400">Same data. Same question. Two retrieval strategies. — Azure DocumentDB</p>
         </div>
-        <div className="text-xs text-slate-400">
-          {graphLoading ? 'Loading graph…' : `${graph.nodes.length} entities · ${graph.edges.length} relationships`}
+        <div className="text-xs text-slate-400 text-right">
+          <div>{graphLoading ? 'Loading graph…' : `${graph.nodes.length} entities · ${graph.edges.length} relationships`}</div>
+          <div className="text-[10px] text-slate-500 mt-0.5">LightRAG first run ~10–20s · repeats are cached</div>
         </div>
       </header>
 
@@ -60,7 +61,12 @@ export default function App() {
           {error && (
             <div className="text-sm text-red-300 bg-red-900/30 border border-red-800 rounded p-2">{error}</div>
           )}
-          <AnswerCards result={result} loading={loading} />
+          <AnswerCards
+            result={result}
+            vectorLoading={vectorLoading}
+            lightragLoading={lightragLoading}
+            timings={timings}
+          />
 
           <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
             <div className="text-sm font-semibold text-slate-200 mb-2">Ingest a new document</div>

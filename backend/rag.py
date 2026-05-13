@@ -91,3 +91,16 @@ async def lightrag_query(query: str) -> str:
     rag = await get_rag()
     result = await rag.aquery(query, param=QueryParam(mode="hybrid"))
     return result if isinstance(result, str) else str(result)
+
+
+async def lightrag_query_stream(query: str):
+    """Async generator yielding answer chunks as they're produced by LightRAG."""
+    rag = await get_rag()
+    result = await rag.aquery(query, param=QueryParam(mode="hybrid", stream=True))
+    if isinstance(result, str):
+        # Cached / non-streaming result — emit as a single chunk
+        yield result
+        return
+    async for chunk in result:
+        if chunk:
+            yield chunk
