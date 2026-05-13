@@ -70,7 +70,10 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
         targetPort: 8000
         transport: 'auto'
         corsPolicy: {
-          allowedOrigins: ['*']
+          allowedOrigins: [
+            'https://khelanmodi.github.io'
+            'http://localhost:5173'
+          ]
           allowedMethods: ['GET', 'POST', 'OPTIONS']
           allowedHeaders: ['*']
         }
