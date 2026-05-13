@@ -1,0 +1,24 @@
+services:
+  backend:
+    build: ./backend
+    env_file: ./backend/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - lightrag_storage:/app/lightrag_storage
+
+  frontend:
+    build: ./frontend
+    environment:
+      - VITE_BACKEND_URL=http://localhost:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  lightrag_storage:
