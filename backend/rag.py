@@ -82,6 +82,22 @@ async def get_rag() -> LightRAG:
     return rag
 
 
+def _fast_param(stream: bool = False) -> QueryParam:
+    """Tuned QueryParam for the demo: smaller retrieval = fewer DocumentDB
+    roundtrips = faster context-building. Mode `local` does single-path
+    (entity-based) traversal — for an 8-doc corpus hybrid mode is overkill
+    and roughly doubles the network calls without changing the answer."""
+    return QueryParam(
+        mode="local",
+        top_k=10,
+        chunk_top_k=5,
+        max_entity_tokens=2000,
+        max_relation_tokens=2000,
+        max_total_tokens=6000,
+        stream=stream,
+    )
+
+
 async def lightrag_insert(text: str) -> None:
     rag = await get_rag()
     await rag.ainsert(text)
@@ -89,14 +105,14 @@ async def lightrag_insert(text: str) -> None:
 
 async def lightrag_query(query: str) -> str:
     rag = await get_rag()
-    result = await rag.aquery(query, param=QueryParam(mode="hybrid"))
+    result = await rag.aquery(query, param=_fast_param(stream=False))
     return result if isinstance(result, str) else str(result)
 
 
 async def lightrag_query_stream(query: str):
     """Async generator yielding answer chunks as they're produced by LightRAG."""
     rag = await get_rag()
-    result = await rag.aquery(query, param=QueryParam(mode="hybrid", stream=True))
+    result = await rag.aquery(query, param=_fast_param(stream=True))
     if isinstance(result, str):
         # Cached / non-streaming result — emit as a single chunk
         yield result

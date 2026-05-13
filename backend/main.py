@@ -144,11 +144,21 @@ async def query_lightrag(req: QueryReq):
 
 @app.post("/query/lightrag/stream")
 async def query_lightrag_stream(req: QueryReq):
-    """SSE: emits 'token' per chunk, then 'highlight' + 'done' once complete."""
+    """SSE: emits 'phases' once, 'token' per chunk, 'highlight' + 'done' at end."""
     if not req.query.strip():
         raise HTTPException(400, "query is required")
 
     async def gen():
+        # Tell the UI what phases LightRAG goes through. Times are approximate;
+        # the UI cycles through them until the first real token arrives.
+        yield _sse("phases", [
+            {"at_ms": 0,    "label": "Extracting query keywords…"},
+            {"at_ms": 800,  "label": "Searching entity vectors in DocumentDB…"},
+            {"at_ms": 1800, "label": "Fetching 1-hop graph neighbors…"},
+            {"at_ms": 3000, "label": "Assembling synthesis context…"},
+            {"at_ms": 4500, "label": "Generating answer…"},
+        ])
+
         full_answer_parts: list[str] = []
         try:
             async for chunk in lightrag_query_stream(req.query):

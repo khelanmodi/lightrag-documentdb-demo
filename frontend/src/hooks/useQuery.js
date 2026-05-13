@@ -45,10 +45,12 @@ export function useQuery() {
   const [lightragElapsed, setLightragElapsed] = useState(0);
   const [vectorFinal, setVectorFinal] = useState(null);
   const [lightragFinal, setLightragFinal] = useState(null);
+  const [lightragPhase, setLightragPhase] = useState(null);
 
   const vectorStartRef = useRef(0);
   const lightragStartRef = useRef(0);
   const tickRef = useRef(null);
+  const phasesRef = useRef([]);
 
   useEffect(() => () => clearInterval(tickRef.current), []);
 
@@ -60,6 +62,8 @@ export function useQuery() {
     setLightragFinal(null);
     setVectorElapsed(0);
     setLightragElapsed(0);
+    setLightragPhase(null);
+    phasesRef.current = [];
     setVectorLoading(true);
     setLightragLoading(true);
 
@@ -71,7 +75,20 @@ export function useQuery() {
     tickRef.current = setInterval(() => {
       const now = performance.now();
       if (vectorStartRef.current) setVectorElapsed(now - vectorStartRef.current);
-      if (lightragStartRef.current) setLightragElapsed(now - lightragStartRef.current);
+      if (lightragStartRef.current) {
+        const dt = now - lightragStartRef.current;
+        setLightragElapsed(dt);
+        // Pick the latest phase whose at_ms has passed.
+        const phases = phasesRef.current;
+        if (phases.length) {
+          let current = null;
+          for (const p of phases) {
+            if (dt >= p.at_ms) current = p.label;
+            else break;
+          }
+          setLightragPhase(current);
+        }
+      }
     }, 50);
 
     const stopTickerIfDone = () => {
@@ -112,7 +129,11 @@ export function useQuery() {
       try {
         let answer = '';
         for await (const { event, data } of sseStream('/query/lightrag/stream', { query })) {
-          if (event === 'token') {
+          if (event === 'phases') {
+            phasesRef.current = Array.isArray(data) ? data : [];
+          } else if (event === 'token') {
+            // First real token: clear the phase narration.
+            if (!answer) setLightragPhase(null);
             answer += typeof data === 'string' ? data : '';
             setLightrag((prev) => ({ ...(prev || {}), lightrag_answer: answer }));
           } else if (event === 'highlight') {
@@ -133,6 +154,7 @@ export function useQuery() {
         const dt = performance.now() - lightragStartRef.current;
         setLightragElapsed(dt);
         setLightragFinal(dt);
+        setLightragPhase(null);
         lightragStartRef.current = 0;
         setLightragLoading(false);
         stopTickerIfDone();
@@ -162,6 +184,7 @@ export function useQuery() {
     error,
     run,
     timings: { vectorElapsed, lightragElapsed, vectorFinal, lightragFinal },
+    lightragPhase,
   };
 }
 

@@ -28,7 +28,7 @@ function TimePill({ ms, loading, color }) {
   );
 }
 
-function Card({ title, badge, badgeColor, loading, timeMs, timeLoading, children }) {
+function Card({ title, badge, badgeColor, loading, timeMs, timeLoading, phase, children }) {
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 flex flex-col min-h-[280px]">
       <div className="flex items-center justify-between mb-3 gap-2">
@@ -44,15 +44,18 @@ function Card({ title, badge, badgeColor, loading, timeMs, timeLoading, children
         </div>
       </div>
       {loading ? (
-        <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">
-          <div className="animate-pulse">Thinking…</div>
+        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 text-sm gap-2">
+          <div className="animate-pulse">{phase || 'Thinking…'}</div>
+          {phase && (
+            <div className="text-[10px] text-slate-600 font-mono">working against DocumentDB graph</div>
+          )}
         </div>
       ) : children}
     </div>
   );
 }
 
-export default function AnswerCards({ result, vectorLoading, lightragLoading, timings }) {
+export default function AnswerCards({ result, vectorLoading, lightragLoading, timings, lightragPhase }) {
   const [openSources, setOpenSources] = useState(false);
 
   const vec = result?.vector_answer;
@@ -113,6 +116,7 @@ export default function AnswerCards({ result, vectorLoading, lightragLoading, ti
           loading={lightragLoading && !lr}
           timeMs={lTime}
           timeLoading={lightragLoading}
+          phase={lightragPhase}
         >
           {lr ? (
             <>

@@ -5,7 +5,7 @@ import AnswerCards from './components/AnswerCards.jsx';
 import { useQuery, fetchGraph, ingestDocument } from './hooks/useQuery.js';
 
 export default function App() {
-  const { loading, vectorLoading, lightragLoading, result, error, run, timings } = useQuery();
+  const { loading, vectorLoading, lightragLoading, result, error, run, timings, lightragPhase } = useQuery();
   const [graph, setGraph] = useState({ nodes: [], edges: [] });
   const [graphLoading, setGraphLoading] = useState(true);
   const [ingestText, setIngestText] = useState('');
@@ -66,6 +66,7 @@ export default function App() {
             vectorLoading={vectorLoading}
             lightragLoading={lightragLoading}
             timings={timings}
+            lightragPhase={lightragPhase}
           />
 
           <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
