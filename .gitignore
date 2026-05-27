@@ -1,8 +1,12 @@
 node_modules/
 dist/
+
+# Environment secrets — never commit these.
+# The .env.example templates ARE tracked; everything else is ignored.
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+
 __pycache__/
 *.pyc
 lightrag_storage/

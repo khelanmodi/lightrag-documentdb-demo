@@ -1,12 +1,30 @@
-"""Shared configuration and singletons."""
+"""Shared configuration and singletons.
+
+Two LLM/embedding providers are supported transparently:
+
+  * **Azure OpenAI** (preferred for Microsoft data): set
+    ``AZURE_OPENAI_ENDPOINT`` + ``AZURE_OPENAI_API_KEY``. ``LLM_MODEL`` and
+    ``EMBED_MODEL`` are then interpreted as Azure **deployment names**.
+  * **OpenAI.com**: set ``OPENAI_API_KEY``. ``LLM_MODEL`` / ``EMBED_MODEL``
+    are model ids (e.g. ``gpt-4o-mini``).
+
+Selection is automatic: if ``AZURE_OPENAI_ENDPOINT`` is non-empty, the Azure
+path is used.
+"""
 import os
 from dotenv import load_dotenv
 from pymongo import MongoClient
-from openai import AsyncOpenAI
+from openai import AsyncAzureOpenAI, AsyncOpenAI
 
 load_dotenv()
 
+# --- OpenAI / Azure OpenAI --------------------------------------------------
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "").rstrip("/")
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
+USE_AZURE_OPENAI = bool(AZURE_OPENAI_ENDPOINT)
+
 DOCUMENTDB_URI = os.getenv("DOCUMENTDB_URI", "mongodb://localhost:27017")
 DB_NAME = os.getenv("DB_NAME", "lightrag_demo")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
@@ -46,4 +64,12 @@ def get_db():
     return get_mongo()[DB_NAME]
 
 
-openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY, timeout=LLM_TIMEOUT)
+if USE_AZURE_OPENAI:
+    openai_client = AsyncAzureOpenAI(
+        api_key=AZURE_OPENAI_API_KEY,
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        api_version=AZURE_OPENAI_API_VERSION,
+        timeout=LLM_TIMEOUT,
+    )
+else:
+    openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY, timeout=LLM_TIMEOUT)

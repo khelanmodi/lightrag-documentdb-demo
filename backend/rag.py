@@ -2,13 +2,19 @@
 from __future__ import annotations
 
 import os
-from functools import lru_cache
 
 from lightrag import LightRAG, QueryParam
 from lightrag.llm.openai import openai_complete_if_cache, openai_embed
+from lightrag.llm.azure_openai import (
+    azure_openai_complete_if_cache,
+    azure_openai_embed,
+)
 from lightrag.utils import EmbeddingFunc
 
 from config import (
+    AZURE_OPENAI_API_KEY,
+    AZURE_OPENAI_API_VERSION,
+    AZURE_OPENAI_ENDPOINT,
     DB_NAME,
     DOCUMENTDB_URI,
     EMBED_DIM,
@@ -16,12 +22,25 @@ from config import (
     LIGHTRAG_WORKING_DIR,
     LLM_MODEL,
     OPENAI_API_KEY,
+    USE_AZURE_OPENAI,
     _clean_uri,
 )
 
 
 async def llm_model_func(prompt, system_prompt=None, history_messages=None, **kwargs):
     history_messages = history_messages or []
+    if USE_AZURE_OPENAI:
+        # `model` is treated as the Azure deployment name.
+        return await azure_openai_complete_if_cache(
+            LLM_MODEL,
+            prompt,
+            system_prompt=system_prompt,
+            history_messages=history_messages,
+            base_url=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_OPENAI_API_VERSION,
+            **kwargs,
+        )
     return await openai_complete_if_cache(
         LLM_MODEL,
         prompt,
@@ -33,6 +52,14 @@ async def llm_model_func(prompt, system_prompt=None, history_messages=None, **kw
 
 
 async def embedding_func(texts: list[str]):
+    if USE_AZURE_OPENAI:
+        return await azure_openai_embed(
+            texts,
+            model=EMBED_MODEL,
+            base_url=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_OPENAI_API_VERSION,
+        )
     return await openai_embed(
         texts,
         model=EMBED_MODEL,
@@ -82,18 +109,30 @@ async def get_rag() -> LightRAG:
     return rag
 
 
-def _fast_param(stream: bool = False) -> QueryParam:
-    """Tuned QueryParam for the demo: smaller retrieval = fewer DocumentDB
-    roundtrips = faster context-building. Mode `local` does single-path
-    (entity-based) traversal — for an 8-doc corpus hybrid mode is overkill
-    and roughly doubles the network calls without changing the answer."""
+SUPPORTED_LIGHTRAG_MODES = {"local", "global", "hybrid", "mix", "naive"}
+
+
+def _fast_param(mode: str = "local", stream: bool = False) -> QueryParam:
+    """Tuned QueryParam for the demo.
+
+    `local` — entity-vector hit → 1-hop graph → chunks. One traversal pass.
+    `hybrid` — local + global (relationship-vector hit → connected entities →
+    chunks). Two passes, ~2x context build cost, but surfaces multi-hop chains
+    a single-entity traversal misses.
+
+    Hybrid gets a slightly larger token budget since it merges two retrieval
+    paths into one prompt.
+    """
+    if mode not in SUPPORTED_LIGHTRAG_MODES:
+        mode = "local"
+    bigger = mode in ("hybrid", "mix")
     return QueryParam(
-        mode="local",
+        mode=mode,
         top_k=10,
         chunk_top_k=5,
-        max_entity_tokens=2000,
-        max_relation_tokens=2000,
-        max_total_tokens=6000,
+        max_entity_tokens=2500 if bigger else 2000,
+        max_relation_tokens=2500 if bigger else 2000,
+        max_total_tokens=7000 if bigger else 6000,
         stream=stream,
     )
 
@@ -103,16 +142,16 @@ async def lightrag_insert(text: str) -> None:
     await rag.ainsert(text)
 
 
-async def lightrag_query(query: str) -> str:
+async def lightrag_query(query: str, mode: str = "local") -> str:
     rag = await get_rag()
-    result = await rag.aquery(query, param=_fast_param(stream=False))
+    result = await rag.aquery(query, param=_fast_param(mode=mode, stream=False))
     return result if isinstance(result, str) else str(result)
 
 
-async def lightrag_query_stream(query: str):
+async def lightrag_query_stream(query: str, mode: str = "local"):
     """Async generator yielding answer chunks as they're produced by LightRAG."""
     rag = await get_rag()
-    result = await rag.aquery(query, param=_fast_param(stream=True))
+    result = await rag.aquery(query, param=_fast_param(mode=mode, stream=True))
     if isinstance(result, str):
         # Cached / non-streaming result — emit as a single chunk
         yield result
