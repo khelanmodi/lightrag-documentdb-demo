@@ -34,157 +34,203 @@ async function* sseStream(path, body) {
   }
 }
 
+const EMPTY_NAIVE = { answer: '', sources: [], loading: false, elapsed: 0, final: null, phase: null };
+const EMPTY_LR = { answer: '', nodes: [], edges: [], loading: false, elapsed: 0, final: null, phase: null };
+
+// Union two arrays of {id, ...} by id, preserving first-seen ordering.
+function unionById(a = [], b = []) {
+  const seen = new Set();
+  const out = [];
+  for (const list of [a, b]) {
+    for (const item of list) {
+      const k = item?.id ?? item?.source + '→' + item?.target;
+      if (k == null || seen.has(k)) continue;
+      seen.add(k);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+export const ALL_MODES = ['naive', 'local', 'hybrid'];
+
 export function useQuery() {
-  const [vectorLoading, setVectorLoading] = useState(false);
-  const [lightragLoading, setLightragLoading] = useState(false);
-  const [vector, setVector] = useState(null);
-  const [lightrag, setLightrag] = useState(null);
+  const [naive,  setNaive]  = useState(EMPTY_NAIVE);
+  const [local,  setLocal]  = useState(EMPTY_LR);
+  const [hybrid, setHybrid] = useState(EMPTY_LR);
   const [error, setError] = useState(null);
+  const [hasRun, setHasRun] = useState(false);
 
-  const [vectorElapsed, setVectorElapsed] = useState(0);
-  const [lightragElapsed, setLightragElapsed] = useState(0);
-  const [vectorFinal, setVectorFinal] = useState(null);
-  const [lightragFinal, setLightragFinal] = useState(null);
-  const [lightragPhase, setLightragPhase] = useState(null);
-
-  const vectorStartRef = useRef(0);
-  const lightragStartRef = useRef(0);
+  const naiveRef  = useRef({ start: 0, phases: [] });
+  const localRef  = useRef({ start: 0, phases: [] });
+  const hybridRef = useRef({ start: 0, phases: [] });
   const tickRef = useRef(null);
-  const phasesRef = useRef([]);
 
   useEffect(() => () => clearInterval(tickRef.current), []);
 
-  const run = useCallback(async (query) => {
+  const stopTickerIfDone = () => {
+    if (!naiveRef.current.start && !localRef.current.start && !hybridRef.current.start) {
+      clearInterval(tickRef.current);
+      tickRef.current = null;
+    }
+  };
+
+  const run = useCallback(async (query, selectedModes = ALL_MODES) => {
     setError(null);
-    setVector({ vector_answer: '', vector_sources: [] });
-    setLightrag({ lightrag_answer: '', graph_nodes: [], graph_edges: [] });
-    setVectorFinal(null);
-    setLightragFinal(null);
-    setVectorElapsed(0);
-    setLightragElapsed(0);
-    setLightragPhase(null);
-    phasesRef.current = [];
-    setVectorLoading(true);
-    setLightragLoading(true);
+    setHasRun(true);
+    const wanted = new Set(selectedModes && selectedModes.length ? selectedModes : ALL_MODES);
+
+    if (wanted.has('naive'))  setNaive({  ...EMPTY_NAIVE, loading: true });
+    if (wanted.has('local'))  setLocal({  ...EMPTY_LR,    loading: true });
+    if (wanted.has('hybrid')) setHybrid({ ...EMPTY_LR,    loading: true });
 
     const t0 = performance.now();
-    vectorStartRef.current = t0;
-    lightragStartRef.current = t0;
+    naiveRef.current  = { start: wanted.has('naive')  ? t0 : 0, phases: [] };
+    localRef.current  = { start: wanted.has('local')  ? t0 : 0, phases: [] };
+    hybridRef.current = { start: wanted.has('hybrid') ? t0 : 0, phases: [] };
 
     clearInterval(tickRef.current);
     tickRef.current = setInterval(() => {
       const now = performance.now();
-      if (vectorStartRef.current) setVectorElapsed(now - vectorStartRef.current);
-      if (lightragStartRef.current) {
-        const dt = now - lightragStartRef.current;
-        setLightragElapsed(dt);
-        // Pick the latest phase whose at_ms has passed.
-        const phases = phasesRef.current;
-        if (phases.length) {
-          let current = null;
-          for (const p of phases) {
-            if (dt >= p.at_ms) current = p.label;
-            else break;
-          }
-          setLightragPhase(current);
+      const pickPhase = (dt, phases) => {
+        let current = null;
+        for (const p of phases) {
+          if (dt >= p.at_ms) current = p.label;
+          else break;
         }
+        return current;
+      };
+      if (naiveRef.current.start) {
+        const dt = now - naiveRef.current.start;
+        setNaive((p) => ({
+          ...p,
+          elapsed: dt,
+          phase: p.answer || p.sources?.length ? null : pickPhase(dt, naiveRef.current.phases),
+        }));
+      }
+      if (localRef.current.start) {
+        const dt = now - localRef.current.start;
+        setLocal((p) => ({
+          ...p,
+          elapsed: dt,
+          phase: p.answer ? null : pickPhase(dt, localRef.current.phases),
+        }));
+      }
+      if (hybridRef.current.start) {
+        const dt = now - hybridRef.current.start;
+        setHybrid((p) => ({
+          ...p,
+          elapsed: dt,
+          phase: p.answer ? null : pickPhase(dt, hybridRef.current.phases),
+        }));
       }
     }, 50);
 
-    const stopTickerIfDone = () => {
-      if (!vectorStartRef.current && !lightragStartRef.current) {
-        clearInterval(tickRef.current);
-        tickRef.current = null;
-      }
-    };
-
-    const runVector = async () => {
+    const runStream = ({ label, path, body, ref, setter, handlers = {} }) => async () => {
       try {
         let answer = '';
-        for await (const { event, data } of sseStream('/query/vector/stream', { query })) {
-          if (event === 'sources') {
-            setVector((prev) => ({ ...(prev || {}), vector_sources: data || [] }));
-          } else if (event === 'token') {
-            answer += typeof data === 'string' ? data : '';
-            setVector((prev) => ({ ...(prev || {}), vector_answer: answer }));
-          } else if (event === 'error') {
-            setError((prev) => prev || `vector: ${data}`);
-          } else if (event === 'done') {
-            break;
-          }
-        }
-      } catch (e) {
-        setError((prev) => prev || `vector: ${e}`);
-      } finally {
-        const dt = performance.now() - vectorStartRef.current;
-        setVectorElapsed(dt);
-        setVectorFinal(dt);
-        vectorStartRef.current = 0;
-        setVectorLoading(false);
-        stopTickerIfDone();
-      }
-    };
-
-    const runLightrag = async () => {
-      try {
-        let answer = '';
-        for await (const { event, data } of sseStream('/query/lightrag/stream', { query })) {
+        for await (const { event, data } of sseStream(path, body)) {
           if (event === 'phases') {
-            phasesRef.current = Array.isArray(data) ? data : [];
+            ref.current.phases = Array.isArray(data) ? data : [];
           } else if (event === 'token') {
-            // First real token: clear the phase narration.
-            if (!answer) setLightragPhase(null);
+            if (!answer) setter((p) => ({ ...p, phase: null }));
             answer += typeof data === 'string' ? data : '';
-            setLightrag((prev) => ({ ...(prev || {}), lightrag_answer: answer }));
-          } else if (event === 'highlight') {
-            setLightrag((prev) => ({
-              ...(prev || {}),
-              graph_nodes: data?.nodes || [],
-              graph_edges: data?.edges || [],
-            }));
+            setter((p) => ({ ...p, answer }));
           } else if (event === 'error') {
-            setError((prev) => prev || `lightrag: ${data}`);
+            setError((prev) => prev || `${label}: ${data}`);
           } else if (event === 'done') {
             break;
+          } else if (handlers[event]) {
+            handlers[event](data, setter);
           }
         }
       } catch (e) {
-        setError((prev) => prev || `lightrag: ${e}`);
+        setError((prev) => prev || `${label}: ${e}`);
       } finally {
-        const dt = performance.now() - lightragStartRef.current;
-        setLightragElapsed(dt);
-        setLightragFinal(dt);
-        setLightragPhase(null);
-        lightragStartRef.current = 0;
-        setLightragLoading(false);
+        const dt = performance.now() - ref.current.start;
+        setter((p) => ({ ...p, elapsed: dt, final: dt, phase: null, loading: false }));
+        ref.current.start = 0;
         stopTickerIfDone();
       }
     };
 
-    runVector();
-    runLightrag();
+    const onSources   = (data, set) => set((p) => ({ ...p, sources: data || [] }));
+    const onHighlight = (data, set) => set((p) => ({
+      ...p,
+      nodes: data?.nodes || [],
+      edges: data?.edges || [],
+    }));
+
+    const tasks = [];
+    if (wanted.has('naive'))  tasks.push(runStream({
+      label: 'naive',
+      path: '/query/naive/stream',
+      body: { query },
+      ref: naiveRef, setter: setNaive,
+      handlers: { sources: onSources },
+    })());
+    if (wanted.has('local'))  tasks.push(runStream({
+      label: 'lightrag-local',
+      path: '/query/lightrag/stream',
+      body: { query, mode: 'local' },
+      ref: localRef, setter: setLocal,
+      handlers: { highlight: onHighlight },
+    })());
+    if (wanted.has('hybrid')) tasks.push(runStream({
+      label: 'lightrag-hybrid',
+      path: '/query/lightrag/stream',
+      body: { query, mode: 'hybrid' },
+      ref: hybridRef, setter: setHybrid,
+      handlers: { highlight: onHighlight },
+    })());
+    // Fire-and-forget; per-mode state drives the UI.
+    void Promise.all(tasks);
   }, []);
 
-  const result =
-    vector || lightrag
-      ? {
-          vector_answer: vector?.vector_answer,
-          vector_sources: vector?.vector_sources || [],
-          lightrag_answer: lightrag?.lightrag_answer,
-          graph_nodes: lightrag?.graph_nodes || [],
-          graph_edges: lightrag?.graph_edges || [],
-        }
-      : null;
+  const loading = naive.loading || local.loading || hybrid.loading;
+
+  const result = hasRun
+    ? {
+        naive_answer: naive.answer,
+        naive_sources: naive.sources,
+        lightrag_local_answer: local.answer,
+        lightrag_local_nodes: local.nodes,
+        lightrag_local_edges: local.edges,
+        lightrag_hybrid_answer: hybrid.answer,
+        lightrag_hybrid_nodes: hybrid.nodes,
+        lightrag_hybrid_edges: hybrid.edges,
+        // Union for the graph panel: any entity either LightRAG pass touched.
+        graph_nodes: unionById(local.nodes, hybrid.nodes),
+        graph_edges: unionById(local.edges, hybrid.edges),
+        // Legacy aliases for older consumers.
+        vector_answer: naive.answer,
+        vector_sources: naive.sources,
+        lightrag_answer: local.answer,
+      }
+    : null;
 
   return {
-    loading: vectorLoading || lightragLoading,
-    vectorLoading,
-    lightragLoading,
+    loading,
+    naiveLoading: naive.loading,
+    localLoading: local.loading,
+    hybridLoading: hybrid.loading,
+    // Legacy loading aliases.
+    vectorLoading: naive.loading,
+    lightragLoading: local.loading || hybrid.loading,
     result,
     error,
     run,
-    timings: { vectorElapsed, lightragElapsed, vectorFinal, lightragFinal },
-    lightragPhase,
+    timings: {
+      naiveElapsed:  naive.elapsed,  naiveFinal:  naive.final,
+      localElapsed:  local.elapsed,  localFinal:  local.final,
+      hybridElapsed: hybrid.elapsed, hybridFinal: hybrid.final,
+      // Legacy aliases.
+      vectorElapsed:   naive.elapsed, vectorFinal:   naive.final,
+      lightragElapsed: local.elapsed, lightragFinal: local.final,
+    },
+    phases: { naive: naive.phase, local: local.phase, hybrid: hybrid.phase },
+    // Legacy.
+    lightragPhase: local.phase,
   };
 }
 

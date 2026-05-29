@@ -2,10 +2,21 @@ import { useEffect, useState } from 'react';
 import GraphPanel from './components/GraphPanel.jsx';
 import QueryBar from './components/QueryBar.jsx';
 import AnswerCards from './components/AnswerCards.jsx';
-import { useQuery, fetchGraph, ingestDocument } from './hooks/useQuery.js';
+import { useQuery, fetchGraph, ingestDocument, ALL_MODES } from './hooks/useQuery.js';
 
 export default function App() {
-  const { loading, vectorLoading, lightragLoading, result, error, run, timings, lightragPhase } = useQuery();
+  const {
+    loading,
+    naiveLoading,
+    localLoading,
+    hybridLoading,
+    result,
+    error,
+    run,
+    timings,
+    phases,
+  } = useQuery();
+  const [selectedModes, setSelectedModes] = useState(ALL_MODES);
   const [graph, setGraph] = useState({ nodes: [], edges: [] });
   const [graphLoading, setGraphLoading] = useState(true);
   const [ingestText, setIngestText] = useState('');
@@ -42,8 +53,10 @@ export default function App() {
     <div className="min-h-screen flex flex-col">
       <header className="px-6 py-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">LightRAG vs Vector Search</h1>
-          <p className="text-xs text-slate-400">Same data. Same question. Two retrieval strategies. — Azure DocumentDB</p>
+          <h1 className="text-lg font-semibold">Three Retrieval Strategies · Azure DocumentDB</h1>
+          <p className="text-xs text-slate-400">
+            Same store. Same data. Same LLM. Naive RAG · LightRAG-Local · LightRAG-Hybrid — side by side.
+          </p>
         </div>
         <div className="text-xs text-slate-400 text-right">
           <div>{graphLoading ? 'Loading graph…' : `${graph.nodes.length} entities · ${graph.edges.length} relationships`}</div>
@@ -57,16 +70,23 @@ export default function App() {
         </section>
 
         <section className="lg:col-span-3 flex flex-col gap-3 overflow-y-auto">
-          <QueryBar onSubmit={run} loading={loading} />
+          <QueryBar
+            onSubmit={run}
+            loading={loading}
+            selectedModes={selectedModes}
+            onModesChange={setSelectedModes}
+          />
           {error && (
             <div className="text-sm text-red-300 bg-red-900/30 border border-red-800 rounded p-2">{error}</div>
           )}
           <AnswerCards
             result={result}
-            vectorLoading={vectorLoading}
-            lightragLoading={lightragLoading}
+            selectedModes={selectedModes}
+            naiveLoading={naiveLoading}
+            localLoading={localLoading}
+            hybridLoading={hybridLoading}
             timings={timings}
-            lightragPhase={lightragPhase}
+            phases={phases}
           />
 
           <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
